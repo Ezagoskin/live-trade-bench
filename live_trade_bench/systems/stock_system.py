@@ -14,6 +14,8 @@ from ..fetchers.stock_fetcher import (
 )
 
 
+
+
 class StockPortfolioSystem:
     def __init__(self, universe_size: int = 15) -> None:
         self.agents: Dict[str, LLMStockAgent] = {}
@@ -55,16 +57,20 @@ class StockPortfolioSystem:
             # Use US Eastern time for stock market
             import pytz
 
+
             et_tz = pytz.timezone("US/Eastern")
             current_time_str = datetime.now(et_tz).strftime("%Y-%m-%d")
 
+
         self.cycle_count += 1
         print("Fetching data for stock portfolio...")
+
 
         market_data = self._fetch_market_data(current_time_str if for_date else None)
         if not market_data:
             print("No market data for stocks, skipping cycle.")
             return
+
 
         news_data = self._fetch_news_data(
             market_data, current_time_str if for_date else None
@@ -72,7 +78,16 @@ class StockPortfolioSystem:
         allocations = self._generate_allocations(
             market_data, news_data, current_time_str
         )
-        self._update_accounts(allocations, market_data, current_time_str)
+       
+        upd, alloc = self._update_accounts(allocations, market_data, current_time_str)
+
+
+
+
+        return upd, alloc
+
+
+
 
     def _fetch_market_data(
         self, for_date: str | None = None
@@ -102,13 +117,22 @@ class StockPortfolioSystem:
             print(f"    - {ticker}: ${data['current_price']:.2f}")
         return market_data
 
+
+
+
     def _fetch_social_data(self) -> Dict[str, List[Dict[str, Any]]]:
         print("  - Fetching social media data...")
         from ..fetchers.reddit_fetcher import RedditFetcher
 
+
+
+
         social_data_map = {}
         fetcher = RedditFetcher()
         today = datetime.now().strftime("%Y-%m-%d")
+
+
+
 
         latest_trending_stocks = fetch_trending_stocks(limit=self.universe_size)
         if latest_trending_stocks:
@@ -116,6 +140,9 @@ class StockPortfolioSystem:
             print(
                 f"  - Updated social media universe to {len(self.universe)} trending stocks."
             )
+
+
+
 
         for ticker in self.universe:
             try:
@@ -144,6 +171,9 @@ class StockPortfolioSystem:
         print(f"  - ✅ Social media data fetched for {len(social_data_map)} stocks")
         return social_data_map
 
+
+
+
     def _fetch_news_data(
         self, market_data: Dict[str, Any], for_date: str | None
     ) -> Dict[str, Any]:
@@ -154,6 +184,9 @@ class StockPortfolioSystem:
                 ref = datetime.strptime(for_date, "%Y-%m-%d") - timedelta(days=1)
             else:
                 ref = datetime.now()
+
+
+
 
             start_date = (ref - timedelta(days=3)).strftime("%Y-%m-%d")
             end_date = ref.strftime("%Y-%m-%d")
@@ -170,6 +203,9 @@ class StockPortfolioSystem:
         except Exception as e:
             print(f"    - News data fetch failed: {e}")
         return news_data_map
+
+
+
 
     def _generate_allocations(
         self,
@@ -199,39 +235,104 @@ class StockPortfolioSystem:
         print("  - ✅ All allocations generated")
         return all_allocations
 
+
+
+
     def _update_accounts(
         self,
         allocations: Dict[str, Dict[str, float]],
         market_data: Dict[str, Any],
         for_date: str | None = None,
-    ) -> None:
+    ) -> Dict[str, Dict[str, float]]:
+        """
+        Updates all agent accounts based on new allocations and market data.
+        Returns a dictionary with updated total and cash values for each agent.
+        """
         print("  - Updating all accounts...")
+
+
+
+
         price_map = {t: d.get("current_price") for t, d in market_data.items()}
+        results = {}
+        alloc = {}
+
+
+
+
         for agent_name, allocation in allocations.items():
             account = self.accounts[agent_name]
             account.target_allocations = allocation
+
+
+
+
+            alloc[agent_name] = str(allocation)
+
+
+
+
             try:
                 account.apply_allocation(
                     allocation, price_map=price_map, metadata_map=market_data
                 )
-                llm_input = None
-                llm_output = None
-                agent = self.agents.get(agent_name)
-                if agent is not None:
-                    llm_input = getattr(agent, "last_llm_input", None)
-                    llm_output = getattr(agent, "last_llm_output", None)
+
+
+
+
+                llm_input = getattr(self.agents.get(agent_name), "last_llm_input", None)
+                llm_output = getattr(self.agents.get(agent_name), "last_llm_output", None)
+
+
+
+
                 account.record_allocation(
                     metadata_map=market_data,
                     backtest_date=for_date,
                     llm_input=llm_input,
                     llm_output=llm_output,
                 )
+
+
+
+
+                total_value = account.get_total_value()
+                cash_value = account.cash_balance
+
+
+
+
                 print(
-                    f"    - ✅ Account for {agent_name} updated. New Value: ${account.get_total_value():,.2f}, Cash: ${account.cash_balance:,.2f}"
+                    f"    - ✅ Account for {agent_name} updated. "
+                    f"New Value: ${total_value:,.2f}, Cash: ${cash_value:,.2f}"
                 )
+
+
+
+
+                # ✅ Store results
+                results[agent_name] = {
+                    "total_value": total_value,
+                    "cash_balance": cash_value,
+                }
+
+
+
+
             except Exception as e:
                 print(f"    - ❌ Failed to update account for {agent_name}: {e}")
+                results[agent_name] = {"error": str(e)}
+
+
+
+
         print("  - ✅ All accounts updated")
+        print("Continue")
+       
+        return results, alloc
+
+
+
 
     @classmethod
     def get_instance(cls):
@@ -240,5 +341,13 @@ class StockPortfolioSystem:
         return cls._instance
 
 
+
+
+
+
+
+
 def create_stock_portfolio_system() -> StockPortfolioSystem:
     return StockPortfolioSystem()
+
+
