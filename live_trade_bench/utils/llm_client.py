@@ -41,7 +41,7 @@ def call_llm(
             "model": normalized_model,
             "messages": messages,
             "temperature": 0.3,
-            "max_tokens": 16000,
+            "max_tokens": 2300,
         }
 
         if (
